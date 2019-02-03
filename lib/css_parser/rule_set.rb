@@ -12,6 +12,11 @@ module CssParser
     BORDER_PROPERTIES = ['border', 'border-left', 'border-right', 'border-top', 'border-bottom']
 
     NUMBER_OF_DIMENSIONS = 4
+
+    DOWNCASE_STRIP_CACHE = Hash.new { |h,k| h[k.downcase] = k.downcase.strip }
+    STRIP_CACHE = Hash.new { |h,k| h[k] = k.to_s.strip }
+    APPEND_SEMICOLON_CACHE = Hash.new { |h,k| h[k] = "#{k}; "}
+
     # Array of selector strings.
     attr_reader   :selectors
 
@@ -31,11 +36,18 @@ module CssParser
     def get_value(property)
       return '' unless property and not property.empty?
 
-      property = property.downcase.strip
+      property = DOWNCASE_STRIP_CACHE[property]
       properties = @declarations.inject(String.new) do |val, (key, data)|
         #puts "COMPARING #{key} #{key.inspect} against #{property} #{property.inspect}"
-        importance = data[:is_important] ? ' !important' : ''
-        val << "#{data[:value]}#{importance}; " if key.downcase.strip == property
+        importance = data[:is_important] ? ' !important' : false
+        if DOWNCASE_STRIP_CACHE[key] == property
+          if importance
+            val << "#{data[:value]}#{importance}; "
+          else
+            val << APPEND_SEMICOLON_CACHE[data[:value]]
+          end
+        end
+
         val
       end
       return properties ? properties.strip : ''
@@ -63,8 +75,7 @@ module CssParser
 
       value.gsub!(/;\Z/, '')
       is_important = !value.gsub!(CssParser::IMPORTANT_IN_PROPERTY_RX, '').nil?
-      property = property.downcase
-      property.strip!
+      property = DOWNCASE_STRIP_CACHE[property]
       #puts "SAVING #{property}  #{value} #{is_important.inspect}"
       @declarations[property] = {
         :value => value, :is_important => is_important, :order => @order += 1
@@ -102,7 +113,7 @@ module CssParser
       decs = @declarations.sort { |a,b| a[1][:order].nil? || b[1][:order].nil? ? 0 : a[1][:order] <=> b[1][:order] }
       decs.each do |property, data|
         value = data[:value]
-        yield property.downcase.strip, value.strip, data[:is_important]
+        yield DOWNCASE_STRIP_CACHE[property], STRIP_CACHE[value], data[:is_important]
       end
     end
 
@@ -258,7 +269,7 @@ module CssParser
 
       matches = value.scan(/("(.*[^"])"|'(.*[^'])'|(\w[^ ,]+))/)
       matches.each do |match|
-        m = match[0].to_s.strip
+        m = STRIP_CACHE[match[0]]
         m.gsub!(/[;]$/, '')
 
         if in_fonts
@@ -411,7 +422,7 @@ module CssParser
             [:right, right],
             [:bottom, bottom],
             [:left, left],
-          ].each { |d, key| values[d] = @declarations[key][:value].downcase.strip }
+          ].each { |d, key| values[d] = DOWNCASE_STRIP_CACHE[@declarations[key][:value]] }
 
           if values[:left] == values[:right]
             if values[:top] == values[:bottom]
@@ -428,14 +439,13 @@ module CssParser
           end
 
           new_value.strip!
-          @declarations[property] = {:value => new_value.strip} unless new_value.empty?
+          @declarations[property] = { :value => new_value } unless new_value.empty?
 
           # Delete the longhand values
           [top, right, bottom, left].each { |d| @declarations.delete(d) }
         end
       end
     end
-
 
     # Looks for long format CSS font properties (e.g. <tt>font-weight</tt>) and
     # tries to convert them into a shorthand CSS <tt>font</tt> property.  All
@@ -460,7 +470,7 @@ module CssParser
 
       new_value << ' ' << @declarations['font-family'][:value]
 
-      @declarations['font'] = {:value => new_value.gsub(/[\s]+/, ' ').strip}
+      @declarations['font'] = {:value => new_value.gsub(/[\s]+/, ' ').strip }
 
       FONT_STYLE_PROPERTIES.each { |prop| @declarations.delete(prop) }
     end
@@ -491,7 +501,7 @@ module CssParser
       end
 
       @declarations[dest] = @declarations[src].dup
-      @declarations[dest][:value] = v.to_s.strip
+      @declarations[dest][:value] = STRIP_CACHE[v]
     end
 
     def parse_declarations!(block) # :nodoc:
